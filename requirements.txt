@@ -1,0 +1,6 @@
+MetaTrader5==5.0.5640
+pandas==2.3.0
+numpy==1.26.4
+hmmlearn==0.3.2
+scikit-learn==1.5.2
+PyWavelets==1.9.0
