@@ -9,32 +9,24 @@ from hmmlearn import hmm
 from sklearn.preprocessing import RobustScaler
 import pywt
 
-# -----------------------
-# Configuración (ajusta aquí)
-# -----------------------
 SYMBOL = "USDJPY"
 TIMEFRAME = mt5.TIMEFRAME_H1
-LOOKBACK_WINDOW = 99999  # número de velas a pedir
+LOOKBACK_WINDOW = 99999  
 
-# ---------- Parámetros de reentrenamiento (walk-forward) ----------
-TRAIN_WINDOW = 50000       # cuántas velas usar en cada entrenamiento (W)
-RETRAIN_EVERY = 10000    # cada cuántas velas reentrenar (R)
+TRAIN_WINDOW = 50000    
+RETRAIN_EVERY = 10000   
 
-# Sensibilidad / generación de señales
-CONSOLIDATION_REQUIRED = 1   # cuántas de las últimas 3 velas deben ser RANGE/CALM
-VOL_INCREASE_MULT = 0.6     # si current_vol <= avg_prev_vol * VOL_INCREASE_MULT -> descartar
-MIN_PRICE_MOVE = 0.0        # mínimo cambio de precio en la dirección esperada
-COOLDOWN_HOURS = 24         # no generar otra señal dentro de este número de horas
+CONSOLIDATION_REQUIRED = 1   
+VOL_INCREASE_MULT = 0.6     
+MIN_PRICE_MOVE = 0.0      
+COOLDOWN_HOURS = 24        
 
-# Wavelet / ventanas
 WAVELET = 'db4'
 WAVELET_LEVEL = 2
 WAVELET_WINDOW = 12
 
-# HMM CONFIGURACIÓN FIJA - 3 ESTADOS
-HMM_N_STATES = 3  # FIJADO: 0=Consolidación, 1=Tendencia Alcista, 2=Tendencia Bajista
+HMM_N_STATES = 3 
 
-# Otros
 MIN_TRAIN_ROWS = 200
 OUTPUT_FILE = f'WAVELET_HMM_{SYMBOL}.txt'
 
@@ -57,9 +49,6 @@ account = 104551427
 password = "4aHcEgH!"  
 server = "MetaQuotes-Demo"
 
-# -----------------------
-# Funciones auxiliares
-# -----------------------
 def connect_mt5(account=None, password=None, server=None):
     if account is None:
         if not mt5.initialize():
@@ -115,9 +104,7 @@ def calculate_wavelet_features_series(close_series, window=WAVELET_WINDOW, wavel
 
     return wavelet_vol, noise_level
 
-# -----------------------
-# FEATURES
-# -----------------------
+
 def calculate_basic_features(df):
     df = df.copy()
     df['returns'] = df['close'].pct_change()
@@ -149,9 +136,7 @@ def calculate_trend_and_wavelet_features(df_subset):
 
     return df
 
-# -----------------------
-# Verificación de leakage
-# -----------------------
+
 def check_data_leakage(df_train, df_test):
     max_train = df_train.index.max()
     min_test = df_test.index.min()
@@ -161,9 +146,7 @@ def check_data_leakage(df_train, df_test):
     logger.info(f"Split temporal OK: train max {max_train} < test min {min_test}")
     return True
 
-# -----------------------
-# HMM - SIMPLIFICADO A 3 ESTADOS FIJOS
-# -----------------------
+
 def train_hmm_with_wavelets(df_train, features=None):
     logger.info(f"Entrenando HMM con {HMM_N_STATES} estados fijos...")
     if features is None:
@@ -195,12 +178,7 @@ def train_hmm_with_wavelets(df_train, features=None):
         return None, None, None, None
 
 def analyze_wavelet_states_simple(X_original, states):
-    """
-    Versión SIMPLE: 3 estados fijos
-    0 = CONSOLIDACIÓN (baja volatilidad, retorno cercano a cero)
-    1 = TENDENCIA_ALCISTA (retorno positivo)
-    2 = TENDENCIA_BAJISTA (retorno negativo)
-    """
+
     logger.info("Analizando 3 estados fijos: Consolidación, Tendencia Alcista, Tendencia Bajista")
     state_info = {}
     unique_states = np.unique(states)
@@ -209,13 +187,11 @@ def analyze_wavelet_states_simple(X_original, states):
         logger.warning("No hay estados únicos en la secuencia")
         return state_info
     
-    # Calcular umbrales basados en datos de entrenamiento
-    returns = X_original[:, 0]  # log_returns
-    volatilities = X_original[:, 1]  # wavelet_vol
-    
-    # Umbral para consolidación: retornos pequeños Y volatilidad baja
-    ret_threshold = np.percentile(np.abs(returns), 50) * 0.5  # 50% del percentil 50 de retornos absolutos
-    vol_threshold = np.percentile(volatilities, 40)  # 40% inferior de volatilidad
+    returns = X_original[:, 0]  
+    volatilities = X_original[:, 1]  
+
+    ret_threshold = np.percentile(np.abs(returns), 50) * 0.5  
+    vol_threshold = np.percentile(volatilities, 40)  
     
     logger.info(f"Umbrales: ret_threshold={ret_threshold:.6f}, vol_threshold={vol_threshold:.6f}")
     
@@ -228,8 +204,7 @@ def analyze_wavelet_states_simple(X_original, states):
         mean_returns = np.mean(sd[:, 0])
         mean_volatility = np.mean(sd[:, 1])
         mean_trend = np.mean(sd[:, 3])
-        
-        # CLASIFICACIÓN SIMPLE DE 3 ESTADOS
+
         if abs(mean_returns) < ret_threshold and mean_volatility < vol_threshold:
             label = 'CONSOLIDACION'
         elif mean_returns > 0:
@@ -249,9 +224,7 @@ def analyze_wavelet_states_simple(X_original, states):
     
     return state_info
 
-# -----------------------
-# Predicción de estados
-# -----------------------
+
 def predict_states_with_viterbi(model, scaler, df, features):
     states_aligned = np.full(len(df), -1, dtype=int)
     if model is None or scaler is None:
@@ -275,9 +248,7 @@ def predict_states_with_viterbi(model, scaler, df, features):
     states_aligned[valid_positions] = preds
     return states_aligned
 
-# -----------------------
-# Generación de señales - VERSIÓN ORIGINAL
-# -----------------------
+
 def generate_transition_signals(df_test, state_info, model, scaler, last_signal_time=None):
     logger.info("Buscando transiciones de régimen (test)...")
     signals = []
@@ -302,17 +273,14 @@ def generate_transition_signals(df_test, state_info, model, scaler, last_signal_
 
             current_label = state_labels[i]
             prev_labels = [state_labels[j] for j in range(i-3, i) if j >= 0]
-            
-            # Verificar consolidación previa (estado 0 = CONSOLIDACION)
+
             consolidation_count = sum(1 for lab in prev_labels if 'CONSOLIDACION' in lab)
             if consolidation_count < CONSOLIDATION_REQUIRED:
                 continue
 
-            # Solo señales cuando salimos de consolidación a tendencia
             if 'CONSOLIDACION' in current_label:
-                continue  # No señales en consolidación
-            
-            # Detectar inicio de tendencia
+                continue  
+
             if 'TENDENCIA_ALCISTA' in current_label:
                 signal_direction = 1
                 strategy = 'BREAKOUT_BULL'
@@ -322,7 +290,6 @@ def generate_transition_signals(df_test, state_info, model, scaler, last_signal_
             else:
                 continue
 
-            # Validación de volatilidad (original)
             curr = df_test.iloc[i]
             prev = df_test.iloc[i-1]
             prev2 = df_test.iloc[i-2]
@@ -336,7 +303,6 @@ def generate_transition_signals(df_test, state_info, model, scaler, last_signal_
                 if current_vol <= avg_prev_vol * VOL_INCREASE_MULT:
                     continue
 
-            # Validar movimiento de precio
             price_change = float(curr['close'] - prev['close'])
             two_period_change = float(curr['close'] - prev2['close'])
 
@@ -348,7 +314,6 @@ def generate_transition_signals(df_test, state_info, model, scaler, last_signal_
             if not ok_price:
                 continue
 
-            # Señal válida
             signal_info = {
                 'timestamp': df_test.index[i].strftime('%Y.%m.%d %H:%M'),
                 'valid_for_time': (df_test.index[i] + timedelta(hours=1)).strftime('%Y.%m.%d %H:%M'),
@@ -372,24 +337,19 @@ def generate_transition_signals(df_test, state_info, model, scaler, last_signal_
 
     return signals, last_signal_time
 
-# -----------------------
-# MAIN (walk-forward training) - VERSIÓN ORIGINAL
-# -----------------------
+
 def main():
     start_time = time.time()
     try:
         logger.info("INICIANDO DETECTOR DE TRANSICIONES DE RÉGIMEN (3 estados fijos)")
         connect_mt5(account=account, password=password, server=server)
 
-        # 1) Obtener datos
         df = get_historical_data(SYMBOL, TIMEFRAME, LOOKBACK_WINDOW)
         logger.info(f"Registros crudos: {len(df)}")
 
-        # 2) Calcular features básicas
         df_basic = calculate_basic_features(df)
         logger.info("Features básicas calculadas.")
 
-        # Validaciones
         if TRAIN_WINDOW < MIN_TRAIN_ROWS:
             raise ValueError(f"TRAIN_WINDOW debe ser >= MIN_TRAIN_ROWS ({MIN_TRAIN_ROWS})")
         if TRAIN_WINDOW > len(df_basic):
@@ -406,7 +366,6 @@ def main():
         last_signal_time = None
         last_df_test = None
 
-        # Walk-forward
         max_train_start = len(df_basic) - TRAIN_WINDOW
         if max_train_start < 0:
             raise ValueError("No hay suficientes velas para el TRAIN_WINDOW especificado")
@@ -420,25 +379,20 @@ def main():
             detect_end = min(train_end + RETRAIN, len(df_basic) - 1)
             logger.info(f"Iteración walk-forward -> train[{train_start}:{train_end}] detect[{detect_start}:{detect_end}]")
 
-            # Slices sobre las basic features
             df_train_basic = df_basic.iloc[train_start:train_end + 1].copy()
             df_test_basic = df_basic.iloc[detect_start:detect_end + 1].copy()
             last_df_test = df_test_basic
 
-            # 3) Calcular features por separado
             df_train = calculate_trend_and_wavelet_features(df_train_basic)
             df_test = calculate_trend_and_wavelet_features(df_test_basic)
             logger.info("Features calculadas por separado (sin leakage).")
 
-            # 4) Verificación de leakage
             if not check_data_leakage(df_train, df_test):
                 raise RuntimeError("Se detectó posible data leakage entre train y test. Revisa el split y las fechas.")
 
-            # 5) Entrenar HMM con 3 estados FIJOS
             model, states_train, X_original, scaler = train_hmm_with_wavelets(df_train, features=features)
 
             if model is None:
-                # fallback mínimo
                 logger.warning("Fallo entrenamiento, intentando fallback simple (2 estados)")
                 features_min = ['log_returns', 'wavelet_vol', 'trend_strength']
                 X_train_raw = df_train[features_min].dropna().values
@@ -455,7 +409,6 @@ def main():
                     train_start += RETRAIN
                     continue
 
-            # 6) Analizar estados (versión simple de 3 estados)
             state_info = analyze_wavelet_states_simple(X_original, states_train)
             
             if not state_info:
@@ -473,7 +426,6 @@ def main():
                     state_info[s] = {'label': label, 'count': int(np.sum(mask))}
                     logger.info(f"Estado {s}: {label} ({int(np.sum(mask))} muestras)")
 
-            # 7) Generar señales
             logger.info("Buscando señales en datos de test (bloque actual)...")
             block_signals, last_signal_time = generate_transition_signals(
                 df_test, state_info, model, scaler, last_signal_time=last_signal_time
@@ -482,7 +434,6 @@ def main():
             all_signals.extend(block_signals)
             train_start += RETRAIN
 
-        # 8) Guardar resultados
         if all_signals:
             signals_df = pd.DataFrame(all_signals)
             output_columns = [
@@ -500,7 +451,6 @@ def main():
             sells = int((signals_df['signal'] == -1).sum())
             logger.info(f"Señales COMPRA: {buys} | Señales VENTA: {sells}")
             
-            # Contar señales por tipo de régimen
             if 'regime' in signals_df.columns:
                 regime_counts = signals_df['regime'].value_counts()
                 logger.info("Señales por régimen:")
